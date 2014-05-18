@@ -3,6 +3,10 @@
 #include <iostream>
 #include <GL\freeglut.h>
 #include <ctime>
+#include <math.h>
+
+//x coord, y coord, i = index of other point
+typedef struct line{ float x, y,r,g,b; int i=0; } line;
 
 static const double pi = 3.14159265359;
 static const float Range = 2.0f;//distance between each point
@@ -14,11 +18,10 @@ static const float Range = 2.0f;//distance between each point
 bool keys[256];
 int width = 1024, height = 768;
 //float *px;float *py;
-float *pxy;
-float *colours;
-int np = 2000;// Maximum number of points
+line *pxy;
+
+int np = 8000;// Maximum number of points
 int p = 1;//current point amount
-int cc = 0; //colours counter
 float r = 5.0f;
 int close = 0;
 float zoom = 500;
@@ -59,11 +62,14 @@ void drawscene(){
 
 	glTranslatef(0, 0, -zoom);
 	glPointSize(1);
-	glBegin(GL_POINTS);
+	glBegin(GL_LINES);
 	int cc = 0;
-	for (int i = 0; i<p; i += 2){
-		glColor3f(colours[cc], colours[cc + 1], colours[cc + 2]);
-		glVertex3f(pxy[i], pxy[i + 1], 0);
+	for (int i = 0; i<p; i ++){
+		glColor3f(pxy[i].r, pxy[i].g, pxy[i].b);		
+		glVertex3f(pxy[i].x, pxy[i].y, 0);
+
+		glColor3f(pxy[pxy[i].i].r, pxy[pxy[i].i].g, pxy[pxy[i].i].b);
+		glVertex3f(pxy[pxy[i].i].x, pxy[pxy[i].i].y, 0);
 		cc += 3;
 	}
 	glEnd();
@@ -77,7 +83,7 @@ void drawscene(){
 	drawcircle(r);
 	drawcircle(r + 5.0f);
 	drawcircle(r - 5.0f);
-	if (p<np * 2){
+	if (p<np){
 		for (int i = 0; i<100; i++){
 			addpoint();
 		}
@@ -93,7 +99,7 @@ void drawscene(){
 void addpoint(){
 	float f, dd = 0, nx, ny, d = 0;
 	float *t;
-	bool b;
+	bool b = false;
 	f = random2(0, 2 * pi);
 	nx = cos(f)*r;
 	ny = sin(f)*r;
@@ -107,26 +113,32 @@ void addpoint(){
 		ny += random2(-3, 3);
 		dd = euclidis(nx, ny, 0, 0);
 
-		b = inrange(Rangep2, nx, ny);
+		for (int i = 0; i<p; i++){
+			float d = cheapdist(nx, ny, pxy[i].x, pxy[i].y);
+			if (d <= Rangep2){
+				b = true;
+				pxy[p].i = i;
+				break;
+			}
+		}
 	} while (!b);
 
 	//printf("x= %f, y = %f \n",nx,ny);
-	pxy[p++] = nx*0.999;
-	pxy[p++] = ny*0.999;
-	/// point colour
-	colours[cc] = (float)p / np;
-	colours[cc + 1] = (r >= 1 ? (float)p / np : 0);
-	colours[cc + 2] = 1;
-	cc += 3;
+	pxy[p].x = nx;
+	pxy[p].y = ny;
+	pxy[p].r = 0;
+	pxy[p].g = (sinf(dd/20) + 1) / 2;
+	pxy[p].b = (sinf(dd/50) + 1) / 2;
+	p++;
+	
 	if (dd > r){
 		r = dd;
 	}
-
 }
 
 bool inrange(float range, float npx, float npy){
 	for (int i = 0; i<p; i += 2){
-		float d = cheapdist(npx, npy, pxy[i], pxy[i + 1]);
+		float d = cheapdist(npx, npy, pxy[i].x, pxy[i].y);
 		if (d <= range){
 			return true;
 		}
@@ -137,16 +149,13 @@ bool inrange(float range, float npx, float npy){
 void init(){
 	glClearColor(0, 0, 0, 0);
 	glShadeModel(GL_SMOOTH);
-
-	colours = new float[np * 3];
-	pxy = new float[np * 2];
-	colours[cc] = 1;
-	colours[cc + 1] = 1;
-	colours[cc + 2] = 1;
-	cc += 3;
-	pxy[0] = 0;
-	pxy[1] = 0;
-	p = 2;
+	//glEnable(GL_LINE_SMOOTH);
+	pxy = new line[np];
+	//center point seed
+	pxy[0].x = 0;
+	pxy[0].y = 0;
+	pxy[0].i = 0;
+	p = 1;
 }
 
 
