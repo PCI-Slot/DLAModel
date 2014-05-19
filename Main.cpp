@@ -4,23 +4,32 @@
 #include <GL\freeglut.h>
 #include <ctime>
 #include <math.h>
+#include <array>
+#include <vector>
+#include "kdtree.h"
+
+typedef std::array<float,2> xy;
 
 //x coord, y coord, i = index of other point
-typedef struct line{ float x, y,r,g,b; int i=0; } line;
+typedef struct line : std::array<float, 2> { float r, g, b; struct line* i; } line;
+
 
 static const double pi = 3.14159265359;
 static const float Range = 2.0f;//distance between each point
+static const int sqsize = 400;
 
 #define getrandom(min, max) (((double)rand() / (double)RAND_MAX)*(max-min)+min)
 #define circrandx(i,r) (0+cos(i)*r)
 #define circrandy(i,r) (0+sin(i)*r)
+
+kdtree<line, 2, 20, sqsize, 2> tree;
 
 bool keys[256];
 int width = 1024, height = 768;
 //float *px;float *py;
 line *pxy;
 
-int np = 8000;// Maximum number of points
+int np = 60000;// Maximum number of points
 int p = 1;//current point amount
 float r = 5.0f;
 int close = 0;
@@ -30,6 +39,7 @@ bool timerend = false;
 float Rangep2 = Range * Range;
 void addpoint();
 bool inrange(float, float, float);
+
 
 void drawcircle(float rad){
 	glBegin(GL_POINTS);
@@ -59,18 +69,20 @@ void drawscene(){
 	//HandleKeys();
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	glLoadIdentity();
-
 	glTranslatef(0, 0, -zoom);
 	glPointSize(1);
 	glBegin(GL_LINES);
 	int cc = 0;
 	for (int i = 0; i<p; i ++){
 		glColor3f(pxy[i].r, pxy[i].g, pxy[i].b);		
-		glVertex3f(pxy[i].x, pxy[i].y, 0);
+		glVertex3f(pxy[i][0], pxy[i][1], 0);
 
-		glColor3f(pxy[pxy[i].i].r, pxy[pxy[i].i].g, pxy[pxy[i].i].b);
-		glVertex3f(pxy[pxy[i].i].x, pxy[pxy[i].i].y, 0);
-		cc += 3;
+		glColor3f((*pxy[i].i).r, (*pxy[i].i).g, (*pxy[i].i).b);
+		glVertex3f((*pxy[i].i)[0], (*pxy[i].i)[1], 0);
+
+		//glColor3f(pxy[pxy[i].i].r, pxy[pxy[i].i].g, pxy[pxy[i].i].b);
+		//glVertex3f(pxy[pxy[i].i][0], pxy[pxy[i].i][1], 0);
+		//cc += 3;
 	}
 	glEnd();
 
@@ -81,6 +93,7 @@ void drawscene(){
 	glEnd();
 
 	drawcircle(r);
+	drawcircle(sqsize);
 	drawcircle(r + 5.0f);
 	drawcircle(r - 5.0f);
 	if (p<np){
@@ -95,42 +108,50 @@ void drawscene(){
 
 	glutSwapBuffers();
 }
-
 void addpoint(){
-	float f, dd = 0, nx, ny, d = 0;
+	float f, dd = 0, d = 0;
 	float *t;
 	bool b = false;
 	f = random2(0, 2 * pi);
-	nx = cos(f)*r;
-	ny = sin(f)*r;
+	line templ;
+	templ[0] = cos(f)*r;
+	templ[1] = sin(f)*r;
+
+	
 	do{
 		if (dd>r + 5){
 			f = random2(0, 2 * pi);
-			nx = cos(f)*r;
-			ny = sin(f)*r;
+			templ[0] = cos(f)*r;
+			templ[1] = sin(f)*r;
 		}
-		nx += random2(-3, 3);
-		ny += random2(-3, 3);
-		dd = euclidis(nx, ny, 0, 0);
+		templ[0] += random2(-3, 3);
+		templ[1] += random2(-3, 3);
 
-		for (int i = 0; i<p; i++){
-			float d = cheapdist(nx, ny, pxy[i].x, pxy[i].y);
+	//sucks points into the center. speeds thing up alot and makes the model more rounded
+		templ[0] *= 0.999;
+		templ[1] *= 0.999;
+
+		dd = euclidis(templ[0], templ[1], 0, 0);
+		std::vector<line*> a = tree.getbucket(templ);
+		for (int i = 0; i<a.size(); i++){
+			float d = cheapdist(templ[0], templ[1], (*a[i])[0], (*a[i])[1]);
 			if (d <= Rangep2){
 				b = true;
-				pxy[p].i = i;
+				pxy[p].i = a[i];
 				break;
 			}
 		}
 	} while (!b);
 
 	//printf("x= %f, y = %f \n",nx,ny);
-	pxy[p].x = nx;
-	pxy[p].y = ny;
+	pxy[p][0] = templ[0];
+	pxy[p][1] = templ[1];
 	pxy[p].r = 0;
 	pxy[p].g = (sinf(dd/20) + 1) / 2;
 	pxy[p].b = (sinf(dd/50) + 1) / 2;
-	p++;
 	
+	tree.insert(&pxy[p]);
+	p++;
 	if (dd > r){
 		r = dd;
 	}
@@ -138,7 +159,7 @@ void addpoint(){
 
 bool inrange(float range, float npx, float npy){
 	for (int i = 0; i<p; i += 2){
-		float d = cheapdist(npx, npy, pxy[i].x, pxy[i].y);
+		float d = cheapdist(npx, npy, pxy[i][0], pxy[i][1]);
 		if (d <= range){
 			return true;
 		}
@@ -152,13 +173,15 @@ void init(){
 	//glEnable(GL_LINE_SMOOTH);
 	pxy = new line[np];
 	//center point seed
-	pxy[0].x = 0;
-	pxy[0].y = 0;
-	pxy[0].i = 0;
+	pxy[0][0] = 0;
+	pxy[0][1] = 0;
+	pxy[0].i = &pxy[0];
+	pxy[0].r = 0;
+	pxy[0].b = 0;
+	pxy[0].g = 0;
 	p = 1;
+	tree.insert(&pxy[0]);
 }
-
-
 
 void specialkeyups(int key, int x, int y){
 	keys[key] = false;
