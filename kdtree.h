@@ -80,5 +80,19 @@ public:
 		}
 		bucket.clear();
 	}
+	void clear(){
+		if (!leaf){
+			Left->clear();
+			Right->clear();
+
+			delete Left;
+			delete Right;
+
+			leaf = true;
+		}
+		else{
+			bucket.clear();
+		}
+	}
 
 };

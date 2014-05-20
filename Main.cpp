@@ -15,46 +15,68 @@ typedef struct line : std::array<float, 2> { float r, g, b; struct line* i; } li
 
 
 static const double pi = 3.14159265359;
-static const float Range = 2.0f;//distance between each point
-static const int sqsize = 400;
+static const int Range = 1.0f;//distance between each point
+static const int sqsize = 2000;
 
 #define getrandom(min, max) (((double)rand() / (double)RAND_MAX)*(max-min)+min)
-#define circrandx(i,r) (0+cos(i)*r)
-#define circrandy(i,r) (0+sin(i)*r)
 
-kdtree<line, 2, 20, sqsize, 2> tree;
+kdtree<line, 2, 10, sqsize, Range> tree;
 
 bool keys[256];
 int width = 1024, height = 768;
 //float *px;float *py;
-line *pxy;
+std::vector<line> pxy;
 
 int np = 60000;// Maximum number of points
-int p = 1;//current point amount
-float r = 5.0f;
+float r = 5.0f,startingr =  5.0f;
+//adverage of points
+float ax=0, ay=0;
 int close = 0;
 float zoom = 500;
 float t0;
-bool timerend = false;
+bool timerend = false,run=false;
 float Rangep2 = Range * Range;
 void addpoint();
 bool inrange(float, float, float);
 
+void quadpoint(line l,float size){
+	glBegin(GL_QUADS);
+		glColor3f(l.r,l.g,l.b);
+		glVertex3f(l[0] - size, l[1] - size, 0);
+		glVertex3f(l[0] - size, l[1] + size, 0);
+		glVertex3f(l[0] + size, l[1] + size, 0);
+		glVertex3f(l[0] + size, l[1] - size, 0);
+			//glColor3f(pxy[l.i].r, pxy[l.i].g, pxy[l.i].b);
+			//glVertex3f(pxy[l.i][0], pxy[l.i][1], 0);
+			//glVertex3f(pxy[l.i][0], pxy[l.i][1], 0);
+	glEnd();
+}
 
+void drawdebugcross(float xx,float yy,float ss){
+	glBegin(GL_LINES);
+		glColor3f(0,1,1);
+		glVertex3f(xx+ss, yy,0);
+		glVertex3f(xx-ss, yy,0);
+		glVertex3f(xx, yy-ss,0);
+		glVertex3f(xx, yy+ss,0);
+	glEnd();
+}
 void drawcircle(float rad){
 	glBegin(GL_POINTS);
 	for (float i = 0; i<2 * pi; i += pi / 50){
 		glColor3f(0, 1, 1);
-		glVertex3f(cos(i)*rad, sin(i)*rad, 0);
+		glVertex3f(ax / (pxy.size()+1) + cos(i)*rad, ay / (pxy.size()+1) + sin(i)*rad, 0);
 	}
 	glEnd();
 }
+
 float cheapdist(float ax, float ay, float bx, float by){
 	float vx, vy;
 	vx = ax - bx;
 	vy = ay - by;
 	return vx*vx + vy*vy;
 }
+
 float euclidis(float ax, float ay, float bx, float by){
 	float vx, vy;
 	vx = ax - bx;
@@ -65,45 +87,44 @@ float random2(float max, float min){
 	float r = ((float)rand()) / (float)RAND_MAX;
 	return r*(max - min) + min;
 }
+
 void drawscene(){
-	//HandleKeys();
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	glLoadIdentity();
 	glTranslatef(0, 0, -zoom);
 	glPointSize(1);
-	glBegin(GL_LINES);
-	int cc = 0;
-	for (int i = 0; i<p; i ++){
-		glColor3f(pxy[i].r, pxy[i].g, pxy[i].b);		
-		glVertex3f(pxy[i][0], pxy[i][1], 0);
-
-		glColor3f((*pxy[i].i).r, (*pxy[i].i).g, (*pxy[i].i).b);
-		glVertex3f((*pxy[i].i)[0], (*pxy[i].i)[1], 0);
-
-		//glColor3f(pxy[pxy[i].i].r, pxy[pxy[i].i].g, pxy[pxy[i].i].b);
-		//glVertex3f(pxy[pxy[i].i][0], pxy[pxy[i].i][1], 0);
-		//cc += 3;
+	//glBegin(GL_POINTS);
+	for (int i = 0; i < pxy.size(); i++){
+	//	glColor3f(pxy[i].r, pxy[i].g, pxy[i].b);
+	//	glVertex3f(pxy[i][0], pxy[i][1], 0);
+		quadpoint(pxy[i],0.5f);
+		//glColor3f((*pxy[i].i).r, (*pxy[i].i).g, (*pxy[i].i).b);
+		//glVertex3f((*pxy[i].i)[0], (*pxy[i].i)[1], 0);
 	}
-	glEnd();
-
+	//glEnd();
+	drawdebugcross(ax / pxy.size(), ay / pxy.size(), 3);
 	glBegin(GL_POINTS);
-	glColor3f(0, 1, 0);
+	glColor3f (0,   1, 0);
 	glVertex3f(0, 0.1, 0);
 	glVertex3f(1, 0.1, 0);
 	glEnd();
 
+	//circles for spawning radius/destruction radius
 	drawcircle(r);
 	drawcircle(sqsize);
 	drawcircle(r + 5.0f);
 	drawcircle(r - 5.0f);
-	if (p<np){
-		for (int i = 0; i<100; i++){
-			addpoint();
+	if (run){
+		if (pxy.size() < np){
+			for (int i = 0; i < 100; i++){
+				addpoint();
+			}
 		}
-	}
-	else if (!timerend){
-		printf("finished in %f seconds", ((float)clock() - t0) / CLOCKS_PER_SEC);
-		timerend = true;
+		else if (!timerend){
+			printf("finished in %f seconds", ((float)clock() - t0) / CLOCKS_PER_SEC);
+			timerend = true;
+			run = false;
+		}
 	}
 
 	glutSwapBuffers();
@@ -112,53 +133,56 @@ void addpoint(){
 	float f, dd = 0, d = 0;
 	float *t;
 	bool b = false;
+
 	f = random2(0, 2 * pi);
 	line templ;
-	templ[0] = cos(f)*r;
-	templ[1] = sin(f)*r;
+	line pxyp;
+	templ[0] = ax / pxy.size() + cos(f)*r;
+	templ[1] = ay / pxy.size() + sin(f)*r;
 
 	
 	do{
-		if (dd>r + 5){
+		if (dd>r + 10){
 			f = random2(0, 2 * pi);
-			templ[0] = cos(f)*r;
-			templ[1] = sin(f)*r;
+			templ[0] = (ax / pxy.size()) + cos(f)*r;
+			templ[1] = (ay / pxy.size()) + sin(f)*r;
 		}
-		templ[0] += random2(-3, 3);
-		templ[1] += random2(-3, 3);
+		templ[0] += random2(-5, 5);
+		templ[1] += random2(-5, 5);
 
 	//sucks points into the center. speeds thing up alot and makes the model more rounded
-		templ[0] *= 0.999;
-		templ[1] *= 0.999;
+		templ[0] *= 0.9999;
+		templ[1] *= 0.9999;
 
-		dd = euclidis(templ[0], templ[1], 0, 0);
+		dd = euclidis(templ[0], templ[1], ax / pxy.size(), ay / pxy.size());
 		std::vector<line*> a = tree.getbucket(templ);
 		for (int i = 0; i<a.size(); i++){
 			float d = cheapdist(templ[0], templ[1], (*a[i])[0], (*a[i])[1]);
 			if (d <= Rangep2){
 				b = true;
-				pxy[p].i = a[i];
+				pxyp.i = a[i];
 				break;
 			}
 		}
 	} while (!b);
-
-	//printf("x= %f, y = %f \n",nx,ny);
-	pxy[p][0] = templ[0];
-	pxy[p][1] = templ[1];
-	pxy[p].r = 0;
-	pxy[p].g = (sinf(dd/20) + 1) / 2;
-	pxy[p].b = (sinf(dd/50) + 1) / 2;
 	
-	tree.insert(&pxy[p]);
-	p++;
+	//printf("x= %f, y = %f \n",nx,ny);
+	pxyp[0] = templ[0];
+	pxyp[1] = templ[1];
+	pxyp.r = 0;
+	pxyp.g = (sinf(dd/20) + 1) / 2;
+	pxyp.b = (sinf(dd/50) + 1) / 2;
+	pxy.push_back(pxyp);
+	tree.insert(&pxy.back());
+	ax += pxyp[0];
+	ay += pxyp[1];
 	if (dd > r){
-		r = dd;
+		r = dd+5;
 	}
 }
 
 bool inrange(float range, float npx, float npy){
-	for (int i = 0; i<p; i += 2){
+	for (int i = 0; i<pxy.size(); i += 2){
 		float d = cheapdist(npx, npy, pxy[i][0], pxy[i][1]);
 		if (d <= range){
 			return true;
@@ -166,28 +190,77 @@ bool inrange(float range, float npx, float npy){
 	}
 	return false;
 }
-
 void init(){
 	glClearColor(0, 0, 0, 0);
 	glShadeModel(GL_SMOOTH);
 	//glEnable(GL_LINE_SMOOTH);
-	pxy = new line[np];
+	glLineWidth(0.5f);
+	pxy.reserve(np+1);
+	
+	line pxy1;
 	//center point seed
-	pxy[0][0] = 0;
-	pxy[0][1] = 0;
-	pxy[0].i = &pxy[0];
-	pxy[0].r = 0;
-	pxy[0].b = 0;
-	pxy[0].g = 0;
-	p = 1;
-	tree.insert(&pxy[0]);
+	pxy1[0] = 0;
+	pxy1[1] = 0;
+	pxy1.i = &pxy1;
+	pxy1.r = 0;
+	pxy1.b = 0;
+	pxy1.g = 0;
+	pxy.push_back(pxy1);
+	tree.insert(&pxy.back());
 }
-
 void specialkeyups(int key, int x, int y){
 	keys[key] = false;
 }
 void specialkeys(int key, int x, int y){
 	keys[key] = true;
+	//start/pause toggle
+	if (key == GLUT_KEY_F1){
+		run = !run;
+		//if reset make seed point
+		if (pxy.size() == 0 && run){
+			line pxy1;
+			//center point seed
+			pxy1[0] = 0;
+			pxy1[1] = 0;
+			pxy1.i = &pxy1;
+			pxy1.r = 0;
+			pxy1.b = 0;
+			pxy1.g = 0;
+			pxy.push_back(pxy1);
+			tree.insert(&pxy.back());
+
+		}
+		if (run){
+			printf("started \n");
+		}
+		else{
+			printf("paused \n");
+		}
+	}
+	//clear
+	if (key == GLUT_KEY_F2){
+		if (!run){
+			printf("cleared \n");
+			pxy.clear();
+			tree.clear();
+			r = startingr;
+			timerend = false;
+			t0 = clock();
+			ax = 0;
+			ay = 0;
+		}
+	}
+	if (key == GLUT_KEY_F3){
+		startingr += startingr / 10;
+		r = startingr;
+	}
+	if (key == GLUT_KEY_F4){
+		if (startingr - startingr/10 > 1){
+			startingr -= startingr / 10;
+			r = startingr;
+		}
+	}
+	
 }
 void keyups(unsigned char key, int x, int y){
 	keys[key] = false;
@@ -240,7 +313,7 @@ int main(int argc, char* argv[])
 	glutSpecialUpFunc(specialkeyups);
 	glutSpecialFunc(specialkeys);
 	glutMouseWheelFunc(mwheel);
-
+	printf("Keys: \n Esc to Exit \n F1: start/pause \n F2: clear if paused \n F3-4 increase/decrease rings \n");
 	glutMainLoop();
 	return 0;
 }
