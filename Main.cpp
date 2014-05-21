@@ -11,12 +11,12 @@
 typedef std::array<float,2> xy;
 
 //x coord, y coord, i = index of other point
-typedef struct line : std::array<float, 2> { float r, g, b; struct line* i; } line;
-
+typedef struct line : std::array<float, 2> { float r, g, b, dist; struct line* i; } line;
+typedef struct spawnpoint : std::array < float, 2 > {float r; struct spawnpoint * left, *right; } spawnpoint;
 
 static const double pi = 3.14159265359;
-static const int Range = 1.0f;//distance between each point
-static const int sqsize = 2000;
+static const int Range = 2.0f;//distance between each point
+static const int sqsize = 1000;
 
 #define getrandom(min, max) (((double)rand() / (double)RAND_MAX)*(max-min)+min)
 
@@ -27,10 +27,11 @@ int width = 1024, height = 768;
 //float *px;float *py;
 std::vector<line> pxy;
 
-int np = 60000;// Maximum number of points
-float r = 5.0f,startingr =  5.0f;
-//adverage of points
-float ax=0, ay=0;
+std::vector<spawnpoint> spawnring;
+
+int np = 120000;// Maximum number of points
+float r = 5.0f,startingr =  10.0f;
+
 int close = 0;
 float zoom = 500;
 float t0;
@@ -38,18 +39,21 @@ bool timerend = false,run=false;
 float Rangep2 = Range * Range;
 void addpoint();
 bool inrange(float, float, float);
+int fff = 0;
 
 void quadpoint(line l,float size){
-	glBegin(GL_QUADS);
+	//glBegin(GL_QUADS);
+	float xv = (l.i[0][0] - l[0])/l.dist,
+		yv = (l.i[0][1] - l[1])/l.dist;
+
 		glColor3f(l.r,l.g,l.b);
-		glVertex3f(l[0] - size, l[1] - size, 0);
-		glVertex3f(l[0] - size, l[1] + size, 0);
-		glVertex3f(l[0] + size, l[1] + size, 0);
-		glVertex3f(l[0] + size, l[1] - size, 0);
-			//glColor3f(pxy[l.i].r, pxy[l.i].g, pxy[l.i].b);
-			//glVertex3f(pxy[l.i][0], pxy[l.i][1], 0);
-			//glVertex3f(pxy[l.i][0], pxy[l.i][1], 0);
-	glEnd();
+		glVertex3f(l[0] - yv*size, l[1] + xv*size, 0);
+		glVertex3f(l[0] + yv*size, l[1] - xv*size, 0);
+
+		glColor3f(l.i->r, l.i->g, l.i->b);
+		glVertex3f(l.i[0][0] + yv*size, l.i[0][1] - xv*size, 0);
+		glVertex3f(l.i[0][0] - yv*size, l.i[0][1] + xv*size, 0);
+	//glEnd();
 }
 
 void drawdebugcross(float xx,float yy,float ss){
@@ -65,7 +69,7 @@ void drawcircle(float rad){
 	glBegin(GL_POINTS);
 	for (float i = 0; i<2 * pi; i += pi / 50){
 		glColor3f(0, 1, 1);
-		glVertex3f(ax / (pxy.size()+1) + cos(i)*rad, ay / (pxy.size()+1) + sin(i)*rad, 0);
+		glVertex3f(0 + cos(i)*rad, 0 + sin(i)*rad, 0);
 	}
 	glEnd();
 }
@@ -94,31 +98,36 @@ void drawscene(){
 	glTranslatef(0, 0, -zoom);
 	glPointSize(1);
 	//glBegin(GL_POINTS);
+	glBegin(GL_POINTS);
 	for (int i = 0; i < pxy.size(); i++){
-	//	glColor3f(pxy[i].r, pxy[i].g, pxy[i].b);
-	//	glVertex3f(pxy[i][0], pxy[i][1], 0);
-		quadpoint(pxy[i],0.5f);
-		//glColor3f((*pxy[i].i).r, (*pxy[i].i).g, (*pxy[i].i).b);
-		//glVertex3f((*pxy[i].i)[0], (*pxy[i].i)[1], 0);
+		glColor3f(pxy[i].r, pxy[i].g, pxy[i].b);
+		glVertex3f(pxy[i][0], pxy[i][1], 0);
+		//quadpoint(pxy[i],0.2f);
 	}
-	//glEnd();
-	drawdebugcross(ax / pxy.size(), ay / pxy.size(), 3);
+	glEnd();
+	
 	glBegin(GL_POINTS);
 	glColor3f (0,   1, 0);
 	glVertex3f(0, 0.1, 0);
 	glVertex3f(1, 0.1, 0);
 	glEnd();
 
-	//circles for spawning radius/destruction radius
-	drawcircle(r);
+	glBegin(GL_POINTS);
+	spawnpoint * sp = &spawnring[0];
+	do{
+		glColor3f(0, 1, 0);
+		glVertex3f(sp[0][0] * sp->r, sp[0][1] * sp->r, 0);
+		sp = sp->left;
+	} while (sp != &spawnring[0]);
+	glEnd();
+	//circles for tree size (there might be errors if the model gets biggger)
 	drawcircle(sqsize);
-	drawcircle(r + 5.0f);
-	drawcircle(r - 5.0f);
 	if (run){
 		if (pxy.size() < np){
 			for (int i = 0; i < 100; i++){
 				addpoint();
 			}
+			
 		}
 		else if (!timerend){
 			printf("finished in %f seconds", ((float)clock() - t0) / CLOCKS_PER_SEC);
@@ -129,55 +138,73 @@ void drawscene(){
 
 	glutSwapBuffers();
 }
+
 void addpoint(){
-	float f, dd = 0, d = 0;
+	float dd = 0, d = 0;
 	float *t;
 	bool b = false;
-
-	f = random2(0, 2 * pi);
+	int f = fff;// (int)(random2(0, 1) * 360);
 	line templ;
 	line pxyp;
-	templ[0] = ax / pxy.size() + cos(f)*r;
-	templ[1] = ay / pxy.size() + sin(f)*r;
+	templ[0] = spawnring[f][0] * (spawnring[f].r - 5);
+	templ[1] = spawnring[f][1] * (spawnring[f].r - 5);
 
-	
+	float a, degi;
 	do{
-		if (dd>r + 10){
-			f = random2(0, 2 * pi);
-			templ[0] = (ax / pxy.size()) + cos(f)*r;
-			templ[1] = (ay / pxy.size()) + sin(f)*r;
+		if (spawnring[f].r < dd + 2){
+			f = fff;// (int)(random2(0, 1) * 360);
+			templ[0] = spawnring[f][0] * (spawnring[f].r - 5);
+			templ[1] = spawnring[f][1] * (spawnring[f].r - 5); 
 		}
-		templ[0] += random2(-5, 5);
-		templ[1] += random2(-5, 5);
+		for (int i = 0; i < 5 && !b; i++){
+			templ[0] += random2(-3, 3);
+			templ[1] += random2(-3, 3);
 
-	//sucks points into the center. speeds thing up alot and makes the model more rounded
-		templ[0] *= 0.9999;
-		templ[1] *= 0.9999;
-
-		dd = euclidis(templ[0], templ[1], ax / pxy.size(), ay / pxy.size());
-		std::vector<line*> a = tree.getbucket(templ);
-		for (int i = 0; i<a.size(); i++){
-			float d = cheapdist(templ[0], templ[1], (*a[i])[0], (*a[i])[1]);
-			if (d <= Rangep2){
-				b = true;
-				pxyp.i = a[i];
-				break;
+			dd = euclidis(templ[0], templ[1], 0, 0);
+			std::vector<line*> a = tree.getbucket(templ);
+			for (int i = 0; i < a.size(); i++){
+				float d = cheapdist(templ[0], templ[1], (*a[i])[0], (*a[i])[1]);
+				if (d <= Rangep2){
+					b = true;
+					pxyp.i = a[i];
+					pxyp.dist = d;
+					break;
+				}
 			}
 		}
+		
+		a = (pi+atan2f(templ[1], -templ[0])) * (180.0f/pi);
+		f = (int)a;
 	} while (!b);
 	
+	if (spawnring[f].r < dd+5){
+		spawnring[f].r = dd + 25;
+		//cascade the r adjustments left and right
+		spawnpoint * tsp = &spawnring[f];
+		// this adjusts how tight the spawning ring is, at 0 it acts just like a circle
+		// higher numbers increase the density
+		float cascadeoffset = 1.2f;
+		while (tsp->r > tsp->left->r + cascadeoffset){
+			tsp->left->r = tsp->r - cascadeoffset;
+			tsp = tsp->left;
+		}
+		tsp = &spawnring[f];
+		while (tsp->r > tsp->right->r + cascadeoffset){
+			tsp->right->r = tsp->r - cascadeoffset;
+			tsp = tsp->right;
+		}
+	}
 	//printf("x= %f, y = %f \n",nx,ny);
 	pxyp[0] = templ[0];
 	pxyp[1] = templ[1];
-	pxyp.r = 0;
-	pxyp.g = (sinf(dd/20) + 1) / 2;
+	pxyp.r = (sinf(dd/50) + 3) / 2;
+	pxyp.g = (sinf(dd/50) + 1) / 2;
 	pxyp.b = (sinf(dd/50) + 1) / 2;
 	pxy.push_back(pxyp);
 	tree.insert(&pxy.back());
-	ax += pxyp[0];
-	ay += pxyp[1];
-	if (dd > r){
-		r = dd+5;
+	fff++;
+	if (fff > 358){
+		fff = 0;
 	}
 }
 
@@ -190,6 +217,32 @@ bool inrange(float range, float npx, float npy){
 	}
 	return false;
 }
+
+void genspawnring(){
+	spawnring.clear();
+	spawnring.reserve(360);
+	float pid360 = 2* pi / 360;
+	float ii = 360;
+	for (float i = 0; i < 2 * pi; i += pid360){
+		spawnpoint sp;
+		sp[0] = cosf(i);
+		sp[1] = sinf(-i);
+		sp.r = startingr*2;
+		spawnring.push_back(sp);
+	}
+	
+	for (int i = 1; i < spawnring.size()-1; i++){
+		spawnring[i].left = &spawnring[i - 1];
+		spawnring[i].right = &spawnring[i + 1];
+	}
+
+	spawnring[0].left = &spawnring[359];
+	spawnring[0].right = &spawnring[1];
+
+	spawnring[359].left =  &spawnring[358];
+	spawnring[359].right = &spawnring[0];
+}
+
 void init(){
 	glClearColor(0, 0, 0, 0);
 	glShadeModel(GL_SMOOTH);
@@ -207,6 +260,25 @@ void init(){
 	pxy1.g = 0;
 	pxy.push_back(pxy1);
 	tree.insert(&pxy.back());
+	genspawnring();
+
+	//int f = (int)((pi + atan2(0.5f, -0.5f)) * 180 / pi);
+
+	//spawnring[f].r = 20;
+	//spawnpoint * tsp = &spawnring[f];
+	//while (tsp->r / tsp->left->r > 1.3f){
+
+	//	tsp->left->r *= (tsp->r / tsp->left->r) / 2.0f;
+	//	tsp = tsp->left;
+	//}
+	//tsp = &spawnring[f];
+	//while (tsp->r / tsp->right->r > 1.3f){
+
+	//	tsp->right->r *= (tsp->r / tsp->right->r) / 2.0f;
+	//	tsp = tsp->right;
+	//}
+
+
 }
 void specialkeyups(int key, int x, int y){
 	keys[key] = false;
@@ -246,8 +318,7 @@ void specialkeys(int key, int x, int y){
 			r = startingr;
 			timerend = false;
 			t0 = clock();
-			ax = 0;
-			ay = 0;
+
 		}
 	}
 	if (key == GLUT_KEY_F3){
