@@ -5,6 +5,7 @@
 //value type, number of dimensions, max bucket size, squared boundry 0 for unsymetric structure,
 template<class DATATYPE, int NDIMS,int NMAXLEAVES,int ROOTSIZE,int NODEBOUNDRY>
 class kdtree{
+private:
 	bool leaf = true;
 	int di;
 	std::array<int,NDIMS> depth;
@@ -13,10 +14,8 @@ class kdtree{
 	kdtree * Left, *Right;
 public:
 	kdtree(){};
-	kdtree(DATATYPE dt, std::array<int, NDIMS> ndepth, int dim)
+	kdtree(DATATYPE dt, std::array<int, NDIMS> ndepth, int dim) : dims(dt), depth(ndepth)
 	{
-		dims = dt;
-		depth = ndepth;
 		depth[dim]++;
 		di = (dim + 1 >= NDIMS ? 0 : dim + 1);
 	};
@@ -92,5 +91,4 @@ public:
 			bucket.clear();
 		}
 	}
-
 };

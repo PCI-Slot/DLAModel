@@ -1,61 +1,65 @@
 
+//#pragma(lib,"CEGUIBase-0.lib")
+//#pragma(lib,"CEGUIOpenGLRenderer-0.lib")
+
 #include <stdio.h>
 #include <iostream>
+#include <GL\glew.h>
 #include <GL\freeglut.h>
 #include <ctime>
 #include <math.h>
 #include <array>
 #include <vector>
+#include <thread>
+#include <Windows.h>
+
 #include "kdtree.h"
 
-typedef std::array<float,2> xy;
+#define offsetof(type,member) ((std::size_t) &(((type*)0)->member))
+#define EnterSC() EnterCriticalSection(&cs);
+#define ExitSC() LeaveCriticalSection(&cs);
+#define pi 3.14159265359
 
+//typedef std::array<float,2> xy;
+static CRITICAL_SECTION cs;
 //x coord, y coord, i = index of other point
-typedef struct line : std::array<float, 2> { float r, g, b, dist; struct line* i; } line;
+typedef struct line : std::array < float, 2 > { float r, g, b, dist; struct line* i; } line;
+
 typedef struct spawnpoint : std::array < float, 2 > {float r; struct spawnpoint * left, *right; } spawnpoint;
 
-static const double pi = 3.14159265359;
+
 static const int Range = 2.0f;//distance between each point
 static const int sqsize = 1000;
-
-#define getrandom(min, max) (((double)rand() / (double)RAND_MAX)*(max-min)+min)
-
-kdtree<line, 2, 10, sqsize, Range> tree;
+static const int np = 120000;//max number of points
+static kdtree<line, 2, 10, sqsize, Range> tree;
 
 bool keys[256];
 int width = 1024, height = 768;
-//float *px;float *py;
-std::vector<line> pxy;
 
-std::vector<spawnpoint> spawnring;
+static std::array<line, np> pxy;
+static std::vector<spawnpoint> spawnring;
+static int nump = 0;
 
-int np = 120000;// Maximum number of points
+
+// Maximum number of points
 float r = 5.0f,startingr =  10.0f;
-
 int close = 0;
 float zoom = 500;
 float t0;
-bool timerend = false,run=false;
+bool timerend = false, run=false;
 float Rangep2 = Range * Range;
 void addpoint();
 bool inrange(float, float, float);
 int fff = 0;
 
-void quadpoint(line l,float size){
-	//glBegin(GL_QUADS);
-	float xv = (l.i[0][0] - l[0])/l.dist,
-		yv = (l.i[0][1] - l[1])/l.dist;
-
-		glColor3f(l.r,l.g,l.b);
-		glVertex3f(l[0] - yv*size, l[1] + xv*size, 0);
-		glVertex3f(l[0] + yv*size, l[1] - xv*size, 0);
-
-		glColor3f(l.i->r, l.i->g, l.i->b);
-		glVertex3f(l.i[0][0] + yv*size, l.i[0][1] - xv*size, 0);
-		glVertex3f(l.i[0][0] - yv*size, l.i[0][1] + xv*size, 0);
-	//glEnd();
+void genpoints(){
+	while (nump < np){
+		if (run){
+		addpoint();
+		}
+	}
+	printf("thread ended");
 }
-
 void drawdebugcross(float xx,float yy,float ss){
 	glBegin(GL_LINES);
 		glColor3f(0,1,1);
@@ -87,9 +91,10 @@ float euclidis(float ax, float ay, float bx, float by){
 	vy = ay - by;
 	return sqrt(vx*vx + vy*vy);
 }
-float random2(float max, float min){
-	float r = ((float)rand()) / (float)RAND_MAX;
-	return r*(max - min) + min;
+
+inline float random2(float max, float min){
+//	float r = ((float)rand()) / (float)RAND_MAX;
+	return (((float)rand()) / (float)RAND_MAX)*(max - min) + min;
 }
 
 void drawscene(){
@@ -97,22 +102,17 @@ void drawscene(){
 	glLoadIdentity();
 	glTranslatef(0, 0, -zoom);
 	glPointSize(1);
-	//glBegin(GL_POINTS);
+
+	//glCallList(dlist1);
 	glBegin(GL_POINTS);
-	for (int i = 0; i < pxy.size(); i++){
-		glColor3f(pxy[i].r, pxy[i].g, pxy[i].b);
-		glVertex3f(pxy[i][0], pxy[i][1], 0);
-		//quadpoint(pxy[i],0.2f);
-	}
-	glEnd();
-	
-	glBegin(GL_POINTS);
-	glColor3f (0,   1, 0);
-	glVertex3f(0, 0.1, 0);
-	glVertex3f(1, 0.1, 0);
+	//foreach with lambda function
+	std::for_each(pxy.begin(), pxy.end() , [](line l){
+			glColor3f(l.r, l.g, l.b);
+			glVertex3f(l[0], l[1], 0);
+	});
 	glEnd();
 
-	glBegin(GL_POINTS);
+	glBegin(GL_LINE_LOOP);
 	spawnpoint * sp = &spawnring[0];
 	do{
 		glColor3f(0, 1, 0);
@@ -120,16 +120,17 @@ void drawscene(){
 		sp = sp->left;
 	} while (sp != &spawnring[0]);
 	glEnd();
+
 	//circles for tree size (there might be errors if the model gets biggger)
 	drawcircle(sqsize);
 	if (run){
-		if (pxy.size() < np){
-			for (int i = 0; i < 100; i++){
-				addpoint();
-			}
-			
-		}
-		else if (!timerend){
+		//if (nump < np){
+		//	for (int i = 0; i < 100; i++){
+		//		addpoint();
+		//	}
+
+		//}else
+		if (!timerend && nump >= np){
 			printf("finished in %f seconds", ((float)clock() - t0) / CLOCKS_PER_SEC);
 			timerend = true;
 			run = false;
@@ -143,7 +144,7 @@ void addpoint(){
 	float dd = 0, d = 0;
 	float *t;
 	bool b = false;
-	int f = fff;// (int)(random2(0, 1) * 360);
+	int f = (int)(random2(0, 1) * 360);
 	line templ;
 	line pxyp;
 	templ[0] = spawnring[f][0] * (spawnring[f].r - 5);
@@ -151,8 +152,10 @@ void addpoint(){
 
 	float a, degi;
 	do{
+	//	printf("startloop \n");
 		if (spawnring[f].r < dd + 2){
-			f = fff;// (int)(random2(0, 1) * 360);
+		//	printf("resetting point \n");
+			f = (int)(random2(0, 1) * 360);
 			templ[0] = spawnring[f][0] * (spawnring[f].r - 5);
 			templ[1] = spawnring[f][1] * (spawnring[f].r - 5); 
 		}
@@ -161,7 +164,10 @@ void addpoint(){
 			templ[1] += random2(-3, 3);
 
 			dd = euclidis(templ[0], templ[1], 0, 0);
+		//	printf("startsearch \n");
+			EnterSC();
 			std::vector<line*> a = tree.getbucket(templ);
+			ExitSC();
 			for (int i = 0; i < a.size(); i++){
 				float d = cheapdist(templ[0], templ[1], (*a[i])[0], (*a[i])[1]);
 				if (d <= Rangep2){
@@ -175,15 +181,18 @@ void addpoint(){
 		
 		a = (pi+atan2f(templ[1], -templ[0])) * (180.0f/pi);
 		f = (int)a;
+		//printf("endloop \n");
 	} while (!b);
 	
+	//printf("finshing point \n");
 	if (spawnring[f].r < dd+5){
+	//	printf("adjusting rings \n");
 		spawnring[f].r = dd + 25;
 		//cascade the r adjustments left and right
 		spawnpoint * tsp = &spawnring[f];
 		// this adjusts how tight the spawning ring is, at 0 it acts just like a circle
 		// higher numbers increase the density
-		float cascadeoffset = 1.2f;
+		float cascadeoffset = 2.5f;
 		while (tsp->r > tsp->left->r + cascadeoffset){
 			tsp->left->r = tsp->r - cascadeoffset;
 			tsp = tsp->left;
@@ -193,19 +202,25 @@ void addpoint(){
 			tsp->right->r = tsp->r - cascadeoffset;
 			tsp = tsp->right;
 		}
+		
 	}
+	EnterSC();
+//	printf("adding point \n");
 	//printf("x= %f, y = %f \n",nx,ny);
 	pxyp[0] = templ[0];
 	pxyp[1] = templ[1];
-	pxyp.r = (sinf(dd/50) + 3) / 2;
-	pxyp.g = (sinf(dd/50) + 1) / 2;
-	pxyp.b = (sinf(dd/50) + 1) / 2;
-	pxy.push_back(pxyp);
-	tree.insert(&pxy.back());
+	pxyp.r = (sinf(dd/50) + 1) / 2;
+	pxyp.g = (sinf(dd/25) + 1) / 2;
+	pxyp.b = (sinf(dd/10) + 1) / 2;
+	pxy[nump] = pxyp;
+	tree.insert(&pxy[nump]);
+	nump++;
 	fff++;
 	if (fff > 358){
 		fff = 0;
 	}
+	ExitSC();
+//	printf("exiting function point \n");
 }
 
 bool inrange(float range, float npx, float npy){
@@ -227,10 +242,9 @@ void genspawnring(){
 		spawnpoint sp;
 		sp[0] = cosf(i);
 		sp[1] = sinf(-i);
-		sp.r = startingr*2;
+		sp.r = startingr*5;
 		spawnring.push_back(sp);
 	}
-	
 	for (int i = 1; i < spawnring.size()-1; i++){
 		spawnring[i].left = &spawnring[i - 1];
 		spawnring[i].right = &spawnring[i + 1];
@@ -239,17 +253,16 @@ void genspawnring(){
 	spawnring[0].left = &spawnring[359];
 	spawnring[0].right = &spawnring[1];
 
-	spawnring[359].left =  &spawnring[358];
+	spawnring[359].left = &spawnring[358];
 	spawnring[359].right = &spawnring[0];
+
+
 }
 
 void init(){
 	glClearColor(0, 0, 0, 0);
 	glShadeModel(GL_SMOOTH);
 	//glEnable(GL_LINE_SMOOTH);
-	glLineWidth(0.5f);
-	pxy.reserve(np+1);
-	
 	line pxy1;
 	//center point seed
 	pxy1[0] = 0;
@@ -258,27 +271,11 @@ void init(){
 	pxy1.r = 0;
 	pxy1.b = 0;
 	pxy1.g = 0;
-	pxy.push_back(pxy1);
-	tree.insert(&pxy.back());
+	//pxy.push_back(pxy1);
+	pxy[nump] = pxy1;
+	tree.insert(&pxy[nump]);
+	nump++;
 	genspawnring();
-
-	//int f = (int)((pi + atan2(0.5f, -0.5f)) * 180 / pi);
-
-	//spawnring[f].r = 20;
-	//spawnpoint * tsp = &spawnring[f];
-	//while (tsp->r / tsp->left->r > 1.3f){
-
-	//	tsp->left->r *= (tsp->r / tsp->left->r) / 2.0f;
-	//	tsp = tsp->left;
-	//}
-	//tsp = &spawnring[f];
-	//while (tsp->r / tsp->right->r > 1.3f){
-
-	//	tsp->right->r *= (tsp->r / tsp->right->r) / 2.0f;
-	//	tsp = tsp->right;
-	//}
-
-
 }
 void specialkeyups(int key, int x, int y){
 	keys[key] = false;
@@ -289,6 +286,9 @@ void specialkeys(int key, int x, int y){
 	if (key == GLUT_KEY_F1){
 		run = !run;
 		//if reset make seed point
+		
+		//std::thread two(genpoints);
+		////std::thread three(genpoints);
 		if (pxy.size() == 0 && run){
 			line pxy1;
 			//center point seed
@@ -298,9 +298,11 @@ void specialkeys(int key, int x, int y){
 			pxy1.r = 0;
 			pxy1.b = 0;
 			pxy1.g = 0;
-			pxy.push_back(pxy1);
+			//pxy.push_back(pxy1);
+			nump = 0;
+			pxy[nump] = pxy1;
 			tree.insert(&pxy.back());
-
+			nump++;
 		}
 		if (run){
 			printf("started \n");
@@ -313,7 +315,7 @@ void specialkeys(int key, int x, int y){
 	if (key == GLUT_KEY_F2){
 		if (!run){
 			printf("cleared \n");
-			pxy.clear();
+			//pxy.clear();
 			tree.clear();
 			r = startingr;
 			timerend = false;
@@ -373,7 +375,13 @@ int main(int argc, char* argv[])
 	glutInitWindowPosition(500, 100);
 	glutInitWindowSize(width, height);
 	glutCreateWindow("Diffuse Limited Aggregation");
+	glewInit();
 	init();
+
+	InitializeCriticalSection(&cs);
+	std::thread one(genpoints);
+	//std::thread two(genpoints);
+	//std::thread three(genpoints);
 
 	glutDisplayFunc(drawscene);
 	glutReshapeFunc(reshape);
